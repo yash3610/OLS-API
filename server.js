@@ -1,6 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
 import cors from 'cors';
+import mongoose from 'mongoose';  // ✅ ADD THIS IMPORT
 import connectDB from './config/database.js';
 import authRoutes from './routes/auth.routes.js';
 import courseRoutes from './routes/course.routes.js';
@@ -15,9 +16,9 @@ connectDB();
 
 const app = express();
 
-// Middleware
+// Middleware - CORS configuration
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: process.env.FRONTEND_URL || '*',  // ✅ CHANGED: Allow all origins for now
   credentials: true
 }));
 
@@ -39,16 +40,16 @@ app.use('/api/courses', courseRoutes);
 app.use('/api/lectures', lectureRoutes);
 app.use('/api/users', userRoutes);
 
-// Health check route
+// Health check route - ✅ FIXED: Use import instead of require
 app.get('/api/health', (req, res) => {
-  const mongoose = require('mongoose');
   res.json({ 
     status: 'OK', 
     message: 'Server is running',
     database: 'MongoDB Atlas',
     dbState: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected',
     timestamp: new Date().toISOString(),
-    port: process.env.PORT
+    port: process.env.PORT || 10000,
+    environment: process.env.NODE_ENV || 'production'
   });
 });
 
@@ -58,6 +59,7 @@ app.get('/', (req, res) => {
     message: 'Ideamagix API Server',
     version: '1.0.0',
     database: 'MongoDB Atlas',
+    environment: process.env.NODE_ENV || 'production',
     endpoints: {
       health: '/api/health',
       auth: '/api/auth',
@@ -70,7 +72,16 @@ app.get('/', (req, res) => {
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ message: `Route ${req.path} not found` });
+  res.status(404).json({ 
+    message: `Route ${req.path} not found`,
+    availableRoutes: [
+      '/api/health',
+      '/api/auth',
+      '/api/courses',
+      '/api/lectures',
+      '/api/users'
+    ]
+  });
 });
 
 // Error handling middleware
@@ -91,16 +102,17 @@ app.use((err, req, res, next) => {
   });
 });
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 10000;  // ✅ CHANGED: Default to 10000 for Render
 
 const server = app.listen(PORT, () => {
   console.log('\n' + '='.repeat(50));
   console.log(`🚀 Ideamagix Server Started`);
   console.log('='.repeat(50));
   console.log(`📡 Server URL: http://localhost:${PORT}`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
+  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'production'}`);
   console.log(`💾 Database: MongoDB Atlas`);
   console.log(`📦 Max Upload Size: 50MB`);
+  console.log(`🔗 CORS Origin: ${process.env.FRONTEND_URL || '*'}`);
   console.log(`⏰ Started at: ${new Date().toLocaleString()}`);
   console.log('='.repeat(50) + '\n');
 });
@@ -114,6 +126,18 @@ server.on('error', (error) => {
     console.error(`❌ Server error: ${error.message}`);
     process.exit(1);
   }
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('⚠️ SIGTERM signal received: closing HTTP server');
+  server.close(() => {
+    console.log('✅ HTTP server closed');
+    mongoose.connection.close(false, () => {
+      console.log('✅ MongoDB connection closed');
+      process.exit(0);
+    });
+  });
 });
 
 export default app;
